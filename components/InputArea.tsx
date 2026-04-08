@@ -20,9 +20,11 @@ export default function InputArea({ onSend }: any) {
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && handleSend()}
       />
+
       <button
         onClick={handleSend}
-        className="bg-blue-600 px-4 py-2 rounded-lg"
+        disabled={!text.trim()}
+        className="bg-blue-600 px-4 py-2 rounded-lg disabled:opacity-50"
       >
         Send
       </button>
