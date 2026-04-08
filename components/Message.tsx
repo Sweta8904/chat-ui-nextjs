@@ -6,6 +6,7 @@ type Props = {
 
 export default function Message({ role, content, timestamp }: Props) {
   return (
+    
     <div
       className={`flex flex-col mb-3 ${
         role === "user" ? "items-end" : "items-start"

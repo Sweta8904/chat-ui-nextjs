@@ -14,15 +14,18 @@ type MessageType = {
 export default function ChatWindow() {
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [loading, setLoading] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   // Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
   const sendMessage = async (text: string) => {
+    if (!text.trim()) return;
+
     const userMessage: MessageType = {
       id: Date.now(),
       content: text,
@@ -49,6 +52,10 @@ export default function ChatWindow() {
       };
 
       setMessages((prev) => [...prev, botMessage]);
+
+      // 🔔 Sound notification
+      const audio = new Audio("/notification.mp3");
+      audio.play();
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -65,11 +72,30 @@ export default function ChatWindow() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-black text-white">
-
+    <div
+      className={`h-screen flex flex-col ${
+        darkMode ? "bg-black text-white" : "bg-white text-black"
+      }`}
+    >
       {/* HEADER */}
-      <div className="p-4 border-b border-gray-700 text-center font-bold text-lg">
+      <div className="p-4 border-b border-gray-700 text-center font-bold text-lg relative">
         AI Chatbot
+
+        {/* 🌙 Dark Mode Toggle */}
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="absolute right-4 top-4 text-sm bg-gray-500 px-2 py-1 rounded"
+        >
+          {darkMode ? "Light" : "Dark"}
+        </button>
+
+        {/* 🧹 Clear Chat */}
+        <button
+          onClick={() => setMessages([])}
+          className="absolute left-4 top-4 text-sm bg-red-500 px-2 py-1 rounded"
+        >
+          Clear
+        </button>
       </div>
 
       {/* CHAT AREA */}
@@ -78,9 +104,11 @@ export default function ChatWindow() {
           <Message key={msg.id} {...msg} />
         ))}
 
-        {/* Typing Indicator */}
+        {/* ✨ Typing Indicator */}
         {loading && (
-          <div className="text-gray-400 italic">Bot is typing...</div>
+          <div className="text-gray-400 italic animate-pulse">
+            Bot is typing...
+          </div>
         )}
 
         <div ref={bottomRef} />
