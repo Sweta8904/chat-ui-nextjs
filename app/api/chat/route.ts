@@ -1,93 +1,102 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Message from "@/models/Message";
+import Groq from "groq-sdk";
 
-/**
- * ✅ POST: Sends message to Gemini and SAVES to MongoDB
- */
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
+
+// ✅ Latest working model
+const MODEL = "llama-3.3-70b-versatile";
+
 export async function POST(req: NextRequest) {
   try {
-    const { message } = await req.json();
+    const { message, threadId } = await req.json();
 
-    if (!message) {
+    // ✅ Validation
+    if (!message || !threadId) {
       return NextResponse.json(
-        { error: "Message is required" },
+        { error: "Message and threadId are required" },
         { status: 400 }
       );
     }
 
     await connectDB();
 
-    // ✅ UPDATED MODEL: Using gemini-2.5-flash for 2026 compatibility
-    const MODEL_NAME = "gemini-2.5-flash";
-    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: message }],
-          },
-        ],
-      }),
+    // ✅ 1. Save USER message
+    await Message.create({
+      threadId,
+      role: "user",
+      content: message,
     });
 
-    const data = await response.json();
+    let aiReply = "";
 
-    // ❗ Handle API error properly
-    if (!response.ok) {
+    try {
+      // ✅ 2. Call Groq
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: "system", content: "You are a helpful assistant." },
+          { role: "user", content: message },
+        ],
+        model: MODEL,
+      });
+
+      aiReply = completion.choices[0]?.message?.content || "";
+    } catch (err: any) {
+      console.error("Groq Error:", err?.message);
+
       return NextResponse.json(
-        { 
-          error: data?.error?.message || "Gemini API error",
-          code: data?.error?.status || "API_FAILURE"
-        },
-        { status: response.status }
+        { error: "AI service is busy. Try again." },
+        { status: 503 }
       );
     }
 
-    // ✅ Safe extraction of the AI response
-    const aiReply =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No response from Gemini";
-
-    // 💾 Save to MongoDB
-    const newMessage = await Message.create({
-      userMessage: message,
-      aiMessage: aiReply,
+    // ✅ 3. Save AI message
+    await Message.create({
+      threadId,
+      role: "assistant",
+      content: aiReply,
     });
 
-    return NextResponse.json({ reply: aiReply, savedMessage: newMessage });
+    // ✅ 4. Return response
+    return NextResponse.json({
+      reply: aiReply,
+    });
 
   } catch (error: any) {
-    console.error("FINAL ERROR:", error);
+    console.error("Server Error:", error);
+
     return NextResponse.json(
-      { error: "Server error", details: error.message },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
 }
 
-/**
- * ✅ GET: Fetches chat history from MongoDB for the Sidebar
- */
-export async function GET() {
+// ✅ GET messages by threadId
+export async function GET(req: NextRequest) {
   try {
     await connectDB();
 
-    // Fetch the latest 30 messages, sorted by newest first
-    const history = await Message.find()
-      .sort({ createdAt: -1 })
-      .limit(30);
+    const threadId = req.nextUrl.searchParams.get("threadId");
 
-    return NextResponse.json({ history });
+    if (!threadId) {
+      return NextResponse.json(
+        { error: "threadId is required" },
+        { status: 400 }
+      );
+    }
+
+    const messages = await Message.find({ threadId })
+      .sort({ createdAt: 1 });
+
+    return NextResponse.json({ messages });
+
   } catch (error: any) {
-    console.error("HISTORY FETCH ERROR:", error);
     return NextResponse.json(
-      { error: "Failed to fetch history", details: error.message },
+      { error: "Failed to fetch messages" },
       { status: 500 }
     );
   }
