@@ -7,29 +7,52 @@ export async function POST(req: NextRequest) {
   try {
     const { name, email, password } = await req.json();
 
+    // 🔒 Basic validation
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email and password are required" },
+        { status: 400 }
+      );
+    }
+
     await connectDB();
 
-    const existing = await User.findOne({ email });
+    // 🔍 Check if user already exists
+    const existingUser = await User.findOne({ email });
 
-    if (existing) {
+    if (existingUser) {
       return NextResponse.json(
         { error: "User already exists" },
         { status: 400 }
       );
     }
 
+    // 🔐 Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await User.create({
+    // ✅ Create user (MATCH NextAuth)
+    const newUser = await User.create({
       name,
       email,
-      passwordHash: hashedPassword,
-      provider: "credentials",
+      password: hashedPassword, // ✅ IMPORTANT FIX
     });
 
-    return NextResponse.json({ user });
+    // ❌ Don't send password back
+    return NextResponse.json(
+      {
+        message: "User created successfully",
+        user: {
+          id: newUser._id,
+          name: newUser.name,
+          email: newUser.email,
+        },
+      },
+      { status: 201 }
+    );
 
   } catch (error) {
+    console.error("Signup error:", error);
+
     return NextResponse.json(
       { error: "Signup failed" },
       { status: 500 }

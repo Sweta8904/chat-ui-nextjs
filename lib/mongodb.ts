@@ -1,22 +1,47 @@
 import mongoose from "mongoose";
 
-const MONGO_URI = process.env.MONGO_URI!;
+const MONGO_URI = process.env.MONGO_URI as string;
 
-let cached = (global as any).mongoose;
-
-if (!cached) {
-  cached = (global as any).mongoose = { conn: null, promise: null };
+if (!MONGO_URI) {
+  throw new Error("❌ Please define MONGO_URI in .env.local");
 }
 
+// Extend global type (for caching in dev)
+declare global {
+  var mongooseCache: {
+    conn: typeof mongoose | null;
+    promise: Promise<typeof mongoose> | null;
+  };
+}
+
+// Initialize cache if not present
+const cached = global.mongooseCache || {
+  conn: null,
+  promise: null,
+};
+
+global.mongooseCache = cached;
+
 export default async function connectDB() {
-  if (cached.conn) return cached.conn;
+  try {
+    // Return cached connection
+    if (cached.conn) {
+      return cached.conn;
+    }
 
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGO_URI, {
-      dbName: "chatapp",
-    });
+    // Create new connection if not exists
+    if (!cached.promise) {
+      cached.promise = mongoose.connect(MONGO_URI, {
+        dbName: "chatapp",
+        bufferCommands: false,
+      });
+    }
+
+    cached.conn = await cached.promise;
+
+    return cached.conn;
+  } catch (error) {
+    console.error("❌ MongoDB connection error:", error);
+    throw error;
   }
-
-  cached.conn = await cached.promise;
-  return cached.conn;
 }
