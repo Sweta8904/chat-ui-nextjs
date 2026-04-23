@@ -2,19 +2,59 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Message from "@/models/Message";
 import Groq from "groq-sdk";
+import axios from "axios";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// ✅ Latest working model
 const MODEL = "llama-3.3-70b-versatile";
+
+// 🔍 Web search function (Tavily)
+async function searchWeb(query: string) {
+  try {
+    const res = await axios.post(
+      "https://api.tavily.com/search",
+      {
+        query,
+        max_results: 3,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
+        },
+      }
+    );
+
+    return res.data.results || [];
+  } catch (error) {
+    console.error("Web Search Error:", error);
+    return [];
+  }
+}
+
+// 🧠 Decide when to use web
+function shouldSearchWeb(query: string) {
+  const keywords = [
+    "weather",
+    "today",
+    "news",
+    "price",
+    "latest",
+    "current",
+    "stock",
+    "temperature",
+  ];
+
+  return keywords.some((k) =>
+    query.toLowerCase().includes(k)
+  );
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { message, threadId } = await req.json();
 
-    // ✅ Validation
     if (!message || !threadId) {
       return NextResponse.json(
         { error: "Message and threadId are required" },
@@ -24,24 +64,51 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // ✅ 1. Save USER message
+    // ✅ Save user message
     await Message.create({
       threadId,
       role: "user",
       content: message,
     });
 
+    let context = "";
+
+    // 🔥 1. Web search if needed
+    if (shouldSearchWeb(message)) {
+      const results = await searchWeb(message);
+
+      context = results
+        .map((r: any) => `Title: ${r.title}\nContent: ${r.content}`)
+        .join("\n\n");
+    }
+
     let aiReply = "";
 
     try {
-      // ✅ 2. Call Groq
+      // 🔥 2. Send context + question to Groq
       const completion = await groq.chat.completions.create({
-        messages: [
-          { role: "system", content: "You are a helpful assistant." },
-          { role: "user", content: message },
-        ],
-        model: MODEL,
-      });
+  messages: [
+    {
+      role: "system",
+      content: context
+        ? "You are a smart assistant. Use the provided web results to answer accurately and up-to-date."
+        : "You are a helpful assistant.",
+    },
+
+    {
+      role: "user",
+      content: context
+        ? `User Question: ${message}
+
+Latest Web Information:
+${context}
+
+Give a clear and updated answer based on this data.`
+        : message,
+    },
+  ],
+  model: MODEL,
+});
 
       aiReply = completion.choices[0]?.message?.content || "";
     } catch (err: any) {
@@ -53,17 +120,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 3. Save AI message
+    // ✅ Save AI reply
     await Message.create({
       threadId,
       role: "assistant",
       content: aiReply,
     });
 
-    // ✅ 4. Return response
-    return NextResponse.json({
-      reply: aiReply,
-    });
+    return NextResponse.json({ reply: aiReply });
 
   } catch (error: any) {
     console.error("Server Error:", error);
