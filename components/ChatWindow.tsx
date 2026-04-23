@@ -44,8 +44,10 @@ export default function ChatWindow() {
     try {
       const res = await fetch("/api/thread");
       const data = await res.json();
+
       if (res.ok) {
-        setThreads(data.threads);
+        setThreads(data.threads || []);
+
         if (data.threads.length > 0 && !activeThread) {
           setActiveThread(data.threads[0]._id);
         }
@@ -61,7 +63,7 @@ export default function ChatWindow() {
     }
   }, [status]);
 
-  // ✅ Fetch messages for active thread
+  // ✅ Fetch messages
   const fetchMessages = async (threadId: string) => {
     try {
       const res = await fetch(`/api/chat?threadId=${threadId}`);
@@ -105,10 +107,7 @@ export default function ChatWindow() {
   // ✅ Create new thread
   const createThread = async () => {
     try {
-      const res = await fetch("/api/thread", {
-        method: "POST",
-      });
-
+      const res = await fetch("/api/thread", { method: "POST" });
       const newThread = await res.json();
 
       setThreads((prev) => [newThread, ...prev]);
@@ -139,7 +138,7 @@ export default function ChatWindow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          threadId: activeThread, // ✅ FIXED
+          threadId: activeThread,
         }),
       });
 
@@ -163,10 +162,17 @@ export default function ChatWindow() {
   };
 
   return (
-    <div className={`flex h-screen ${darkMode ? "bg-[#131314] text-white" : "bg-white text-black"}`}>
-      
+    <div
+      className={`flex h-screen ${
+        darkMode ? "bg-[#131314] text-white" : "bg-white text-black"
+      }`}
+    >
       {/* Sidebar */}
-      <aside className={`${isSidebarOpen ? "w-64" : "w-0"} transition-all border-r overflow-hidden`}>
+      <aside
+        className={`${
+          isSidebarOpen ? "w-64" : "w-0"
+        } transition-all border-r overflow-hidden`}
+      >
         <div className="p-4">
           <button
             onClick={createThread}
@@ -176,12 +182,14 @@ export default function ChatWindow() {
           </button>
 
           <div className="mt-4 space-y-2">
-            {threads.map((t) => (
+            {threads.map((t, index) => (
               <div
-                key={t._id}
+                key={t._id?.toString() || index} // ✅ FIXED HERE
                 onClick={() => setActiveThread(t._id)}
                 className={`p-2 rounded cursor-pointer ${
-                  activeThread === t._id ? "bg-gray-600" : "hover:bg-gray-700"
+                  activeThread === t._id
+                    ? "bg-gray-600"
+                    : "hover:bg-gray-700"
                 }`}
               >
                 {t.title || "New Chat"}
@@ -194,7 +202,10 @@ export default function ChatWindow() {
       {/* Chat */}
       <main className="flex-1 flex flex-col">
         <header className="p-4 flex justify-between items-center">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>☰</button>
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            ☰
+          </button>
+
           <h2>Chat</h2>
 
           <div className="flex gap-2">
@@ -215,7 +226,9 @@ export default function ChatWindow() {
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`mb-4 ${msg.role === "user" ? "text-right" : "text-left"}`}
+              className={`mb-4 ${
+                msg.role === "user" ? "text-right" : "text-left"
+              }`}
             >
               <Message {...msg} />
             </div>

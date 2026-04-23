@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   try {
     const { name, email, password } = await req.json();
 
-    // 🔒 Basic validation
+    // 🔒 Validation
     if (!email || !password) {
       return NextResponse.json(
         { error: "Email and password are required" },
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // 🔍 Check if user already exists
+    // 🔍 Check existing user
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -32,12 +32,13 @@ export async function POST(req: NextRequest) {
 
     // ✅ Create user (MATCH NextAuth)
     const newUser = await User.create({
-      name,
+      name: name || "",
       email,
-      password: hashedPassword, // ✅ IMPORTANT FIX
+      passwordHash: hashedPassword, // ✅ FIXED
+      provider: "credentials",      // ✅ IMPORTANT
     });
 
-    // ❌ Don't send password back
+    // ✅ Response (no password)
     return NextResponse.json(
       {
         message: "User created successfully",

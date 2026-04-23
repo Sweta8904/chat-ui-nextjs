@@ -52,7 +52,12 @@ export async function GET() {
       userId: session.user.id || session.user.email,
     }).sort({ createdAt: -1 });
 
-    return NextResponse.json({ threads });
+    return NextResponse.json({
+  threads: threads.map((t) => ({
+    ...t.toObject(),
+    _id: t._id.toString(), // ✅ FIX HERE
+  })),
+});
 
   } catch (error) {
     console.error("Thread GET Error:", error);

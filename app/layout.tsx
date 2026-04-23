@@ -26,10 +26,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-full flex flex-col">
-        {/* ✅ IMPORTANT: Wrap with SessionProvider */}
+      <body className="min-h-screen bg-background antialiased">
+        {/* ✅ Session + global providers */}
         <Providers>{children}</Providers>
       </body>
     </html>

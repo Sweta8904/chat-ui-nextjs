@@ -20,7 +20,7 @@ export default function LoginPage() {
     const res = await signIn("credentials", {
       email,
       password,
-      redirect: false, // ⚠️ IMPORTANT
+      redirect: false,
     });
 
     setLoading(false);
@@ -34,48 +34,55 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col items-center justify-center gap-4 bg-gray-100">
-      <div className="bg-white p-6 rounded-xl shadow-md w-80 flex flex-col gap-3">
-        <h1 className="text-2xl font-bold text-center">Login</h1>
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-gray-800">
+      
+      <div className="bg-gray-900 text-white p-8 rounded-2xl shadow-xl w-80 flex flex-col gap-4">
+        
+        <h1 className="text-2xl font-bold text-center">Welcome Back</h1>
 
         {error && (
-          <p className="text-red-500 text-sm text-center">{error}</p>
+          <p className="text-red-400 text-sm text-center">{error}</p>
         )}
 
+        {/* Email */}
         <input
           type="email"
           placeholder="Email"
-          className="border p-2 rounded"
+          className="bg-gray-800 border border-gray-700 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           onChange={(e) => setEmail(e.target.value)}
         />
 
+        {/* Password */}
         <input
           type="password"
           placeholder="Password"
-          className="border p-2 rounded"
+          className="bg-gray-800 border border-gray-700 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           onChange={(e) => setPassword(e.target.value)}
         />
 
+        {/* Login Button */}
         <button
           onClick={handleLogin}
           disabled={loading}
-          className="bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+          className="bg-blue-600 hover:bg-blue-700 transition py-2 rounded font-semibold"
         >
           {loading ? "Logging in..." : "Login"}
         </button>
 
-        <hr />
+        <div className="text-center text-gray-400 text-sm">OR</div>
 
+        {/* Google */}
         <button
           onClick={() => signIn("google", { callbackUrl: "/" })}
-          className="bg-red-500 text-white py-2 rounded hover:bg-red-600"
+          className="bg-red-500 hover:bg-red-600 transition py-2 rounded font-semibold"
         >
           Continue with Google
         </button>
 
+        {/* GitHub */}
         <button
           onClick={() => signIn("github", { callbackUrl: "/" })}
-          className="bg-gray-800 text-white py-2 rounded hover:bg-black"
+          className="bg-gray-800 hover:bg-black transition py-2 rounded font-semibold border border-gray-700"
         >
           Continue with GitHub
         </button>
