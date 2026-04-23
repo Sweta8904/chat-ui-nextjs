@@ -11,42 +11,22 @@ type MessageType = {
   timestamp: string;
 };
 
-type ThreadType = {
-  _id: string;
-  title: string;
-};
-
 type Props = {
   threadId: string;
 };
 
 export default function ChatWindow({ threadId }: Props) {
   const [messages, setMessages] = useState<MessageType[]>([]);
-  const [threads, setThreads] = useState<ThreadType[]>([]);
-  const [currentThreadId, setCurrentThreadId] = useState(threadId);
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ Fetch threads
-  const fetchThreads = async () => {
+  // ✅ Load messages for this thread
+  const fetchMessages = async () => {
     try {
-      const res = await fetch("/api/thread");
-      const data = await res.json();
-      if (res.ok) {
-        setThreads(data.threads || []);
-      }
-    } catch (err) {
-      console.error("Failed to load threads:", err);
-    }
-  };
-
-  // ✅ Fetch messages for selected thread
-  const fetchMessages = async (id: string) => {
-    try {
-      const res = await fetch(`/api/chat?threadId=${id}`);
+      const res = await fetch(`/api/chat?threadId=${threadId}`);
       const data = await res.json();
 
       if (res.ok && data.messages) {
@@ -65,19 +45,15 @@ export default function ChatWindow({ threadId }: Props) {
   };
 
   useEffect(() => {
-    fetchThreads();
-  }, []);
-
-  useEffect(() => {
-    if (currentThreadId) fetchMessages(currentThreadId);
-  }, [currentThreadId]);
+    if (threadId) fetchMessages();
+  }, [threadId]);
 
   // Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // ✅ Send message
+  // ✅ Send message with threadId
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
 
@@ -97,7 +73,7 @@ export default function ChatWindow({ threadId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          threadId: currentThreadId,
+          threadId, // ✅ IMPORTANT
         }),
       });
 
@@ -113,8 +89,11 @@ export default function ChatWindow({ threadId }: Props) {
       };
 
       setMessages((prev) => [...prev, botMessage]);
+
+      const audio = new Audio("/notification.mp3");
+      audio.play().catch(() => {});
     } catch (error) {
-      console.error("Error:", error);
+      console.error("FRONTEND ERROR:", error);
 
       setMessages((prev) => [
         ...prev,
@@ -130,60 +109,34 @@ export default function ChatWindow({ threadId }: Props) {
     }
   };
 
-  // ✅ Create new thread
-  const createNewChat = async () => {
-    try {
-      const res = await fetch("/api/thread", {
-        method: "POST",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error);
-
-      setThreads((prev) => [data.thread, ...prev]);
-      setCurrentThreadId(data.thread._id);
-      setMessages([]);
-    } catch (err) {
-      console.error("Failed to create thread:", err);
-    }
-  };
-
   return (
-    <div className={`flex h-screen w-full ${darkMode ? "bg-[#131314] text-white" : "bg-white text-black"}`}>
-      
-      {/* ✅ Sidebar */}
-      <aside className={`${isSidebarOpen ? "w-64" : "w-0"} transition-all border-r overflow-hidden`}>
-        
+    <div
+      className={`flex h-screen w-full ${
+        darkMode ? "bg-[#131314] text-white" : "bg-white text-black"
+      }`}
+    >
+      {/* Sidebar (placeholder for threads) */}
+      <aside
+        className={`${
+          isSidebarOpen ? "w-64" : "w-0"
+        } transition-all border-r overflow-hidden`}
+      >
         <div className="p-4">
           <button
-            onClick={createNewChat} // ✅ FIXED HERE
+            onClick={() => setMessages([])}
             className="w-full bg-gray-700 text-white p-2 rounded"
           >
             + New Chat
           </button>
         </div>
-
-        <div className="p-2 space-y-2">
-          {threads.map((thread) => (
-            <div
-              key={thread._id}
-              onClick={() => setCurrentThreadId(thread._id)}
-              className={`p-2 rounded cursor-pointer ${
-                currentThreadId === thread._id ? "bg-gray-600" : "hover:bg-gray-700"
-              }`}
-            >
-              {thread.title || "New Chat"}
-            </div>
-          ))}
-        </div>
       </aside>
 
-      {/* ✅ Chat */}
+      {/* Chat */}
       <main className="flex-1 flex flex-col">
-        
         <header className="p-4 flex justify-between">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>☰</button>
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            ☰
+          </button>
           <h2>Chat</h2>
           <button onClick={() => setDarkMode(!darkMode)}>
             {darkMode ? "🌙" : "☀️"}
