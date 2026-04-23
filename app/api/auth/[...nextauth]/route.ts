@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { type NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
 import CredentialsProvider from "next-auth/providers/credentials";
@@ -6,7 +6,8 @@ import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
 
-const handler = NextAuth({
+// ✅ EXPORT THIS (VERY IMPORTANT)
+export const authOptions: NextAuthOptions = {
   providers: [
     // 🔐 EMAIL + PASSWORD LOGIN
     CredentialsProvider({
@@ -62,7 +63,7 @@ const handler = NextAuth({
   },
 
   callbacks: {
-    // 🔥 Runs on login (OAuth + credentials)
+    // 🔥 Runs on login
     async signIn({ user, account }) {
       try {
         await connectDB();
@@ -89,7 +90,7 @@ const handler = NextAuth({
       }
     },
 
-    // 🔥 Attach user ID to token
+    // 🔥 Add user ID to JWT
     async jwt({ token }) {
       try {
         if (!token.email) return token;
@@ -111,7 +112,7 @@ const handler = NextAuth({
       }
     },
 
-    // 🔥 Attach ID to session
+    // 🔥 Add user ID to session
     async session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string;
@@ -126,6 +127,9 @@ const handler = NextAuth({
   },
 
   secret: process.env.NEXTAUTH_SECRET,
-});
+};
+
+// ✅ USE authOptions HERE
+const handler = NextAuth(authOptions);
 
 export { handler as GET, handler as POST };

@@ -1,37 +1,51 @@
-import mongoose from "mongoose";
+import mongoose, { Schema, models, model } from "mongoose";
 
-const MessageSchema = new mongoose.Schema(
+const MessageSchema = new Schema(
   {
+    // ✅ Unique message ID (required by spec)
+    messageId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+
+    // ✅ Link to user (REQUIRED for security)
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
     // ✅ Link to thread
     threadId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Thread",
       required: true,
+      index: true,
     },
 
-    // ✅ (Optional but recommended) Link to user
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-    },
-
-    // ✅ Who sent the message
+    // ✅ Sender role
     role: {
       type: String,
       enum: ["user", "assistant"],
       required: true,
     },
 
-    // ✅ Actual message content
+    // ✅ Message content
     content: {
       type: String,
       required: true,
+      trim: true,
     },
   },
   {
-    timestamps: true, // ✅ auto adds createdAt & updatedAt
+    timestamps: true, // ✅ adds createdAt & updatedAt
   }
 );
 
-export default mongoose.models.Message ||
-  mongoose.model("Message", MessageSchema);
+// ✅ Prevent model overwrite (Next.js fix)
+const Message =
+  models.Message || model("Message", MessageSchema);
+
+export default Message;

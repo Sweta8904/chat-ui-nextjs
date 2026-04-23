@@ -3,6 +3,9 @@ import connectDB from "@/lib/mongodb";
 import Message from "@/models/Message";
 import Groq from "groq-sdk";
 import axios from "axios";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
+import { randomUUID } from "crypto";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -10,7 +13,7 @@ const groq = new Groq({
 
 const MODEL = "llama-3.3-70b-versatile";
 
-// 🔍 Web search function (Tavily)
+// 🔍 Web search
 async function searchWeb(query: string) {
   try {
     const res = await axios.post(
@@ -64,8 +67,21 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // ✅ Save user message
+    // 🔐 AUTH CHECK
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
+
+    // ✅ Save USER message
     await Message.create({
+      messageId: randomUUID(),
+      userId,
       threadId,
       role: "user",
       content: message,
@@ -73,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     let context = "";
 
-    // 🔥 1. Web search if needed
+    // 🔥 Web search
     if (shouldSearchWeb(message)) {
       const results = await searchWeb(message);
 
@@ -85,30 +101,28 @@ export async function POST(req: NextRequest) {
     let aiReply = "";
 
     try {
-      // 🔥 2. Send context + question to Groq
       const completion = await groq.chat.completions.create({
-  messages: [
-    {
-      role: "system",
-      content: context
-        ? "You are a smart assistant. Use the provided web results to answer accurately and up-to-date."
-        : "You are a helpful assistant.",
-    },
-
-    {
-      role: "user",
-      content: context
-        ? `User Question: ${message}
+        messages: [
+          {
+            role: "system",
+            content: context
+              ? "You are a smart assistant. Use the provided web results to answer accurately and up-to-date."
+              : "You are a helpful assistant.",
+          },
+          {
+            role: "user",
+            content: context
+              ? `User Question: ${message}
 
 Latest Web Information:
 ${context}
 
 Give a clear and updated answer based on this data.`
-        : message,
-    },
-  ],
-  model: MODEL,
-});
+              : message,
+          },
+        ],
+        model: MODEL,
+      });
 
       aiReply = completion.choices[0]?.message?.content || "";
     } catch (err: any) {
@@ -120,8 +134,10 @@ Give a clear and updated answer based on this data.`
       );
     }
 
-    // ✅ Save AI reply
+    // ✅ Save AI message
     await Message.create({
+      messageId: randomUUID(),
+      userId,
       threadId,
       role: "assistant",
       content: aiReply,
@@ -139,10 +155,20 @@ Give a clear and updated answer based on this data.`
   }
 }
 
-// ✅ GET messages by threadId
+// ✅ GET messages (SECURE)
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
+
+    const session = await getServerSession();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
 
     const threadId = req.nextUrl.searchParams.get("threadId");
 
@@ -153,8 +179,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const messages = await Message.find({ threadId })
-      .sort({ createdAt: 1 });
+    const messages = await Message.find({
+      threadId,
+      userId, // ✅ SECURITY FIX
+    }).sort({ createdAt: 1 });
 
     return NextResponse.json({ messages });
 
