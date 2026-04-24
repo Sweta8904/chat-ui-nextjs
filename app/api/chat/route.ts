@@ -10,7 +10,7 @@ import { randomUUID } from "crypto";
 import mongoose from "mongoose";
 
 const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.GROQ_API_KEY!,
 });
 
 const MODEL = "llama-3.3-70b-versatile";
@@ -20,7 +20,10 @@ async function searchWeb(query: string) {
   try {
     const res = await axios.post(
       "https://api.tavily.com/search",
-      { query, max_results: 3 },
+      {
+        query,
+        max_results: 3,
+      },
       {
         headers: {
           Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
@@ -35,7 +38,7 @@ async function searchWeb(query: string) {
   }
 }
 
-// 🧠 Decide when to use web
+// 🧠 When to trigger web search
 function shouldSearchWeb(query: string) {
   const keywords = [
     "weather",
@@ -53,77 +56,82 @@ function shouldSearchWeb(query: string) {
   );
 }
 
+// ================= POST =================
 export async function POST(req: NextRequest) {
   try {
-    const { message, threadId } = await req.json();
+    const body = await req.json();
+    const message = body.message?.trim();
+    const threadId = body.threadId;
 
-    if (!message || !threadId) {
+    if (!message) {
       return NextResponse.json(
-        { error: "Message and threadId are required" },
+        { error: "Message is required" },
         { status: 400 }
       );
     }
 
     await connectDB();
 
-    // 🔐 AUTH
+    // 🔐 Auth
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return NextResponse.json(
-        { error: "Invalid threadId format" },
-        { status: 400 }
+        { error: "Unauthorized" },
+        { status: 401 }
       );
     }
 
     const userId = session.user.id;
-    const threadObjectId = new mongoose.Types.ObjectId(threadId);
 
-    // 🔐 THREAD CHECK
-    const thread = await Thread.findOne({
-      _id: threadObjectId,
-      userId,
-    });
+    let thread: any = null;
 
-    if (!thread) {
-      return NextResponse.json(
-        { error: "Invalid thread" },
-        { status: 403 }
-      );
+    // 🔍 Try to find valid thread
+    if (threadId && mongoose.Types.ObjectId.isValid(threadId)) {
+      thread = await Thread.findOne({
+        _id: new mongoose.Types.ObjectId(threadId),
+        userId,
+      });
     }
 
-    const cleanMessage = message.trim();
+    // 🔥 Auto-create thread if invalid
+    if (!thread) {
+      thread = await Thread.create({
+        userId,
+        title: "New Chat",
+      });
+    }
+
+    const finalThreadId = thread._id;
 
     // ✅ Save USER message
     await Message.create({
       messageId: randomUUID(),
       userId,
-      threadId: threadObjectId,
+      threadId: finalThreadId,
       role: "user",
-      content: cleanMessage,
+      content: message,
     });
 
-    // 🔥 UPDATE THREAD TITLE (IMPORTANT FIX)
+    // 🧠 Update thread title (only once)
     if (thread.title === "New Chat") {
-      await Thread.findByIdAndUpdate(threadObjectId, {
-        title: cleanMessage.substring(0, 30),
+      const title = message.split(" ").slice(0, 5).join(" ");
+      await Thread.findByIdAndUpdate(finalThreadId, {
+        title,
       });
     }
 
+    // 🔍 Web context
     let context = "";
 
-    // 🔍 Web search
-    if (shouldSearchWeb(cleanMessage)) {
-      const results = await searchWeb(cleanMessage);
+    if (shouldSearchWeb(message)) {
+      const results = await searchWeb(message);
 
       context = results
         .map((r: any) => `• ${r.title}\n${r.content}`)
         .join("\n\n");
     }
 
+    // 🤖 AI call
     let aiReply = "";
 
     try {
@@ -132,19 +140,14 @@ export async function POST(req: NextRequest) {
           {
             role: "system",
             content: context
-              ? "You are a smart assistant. Use web results to give accurate answers."
+              ? "Use the web data to give accurate and updated answers."
               : "You are a helpful assistant.",
           },
           {
             role: "user",
             content: context
-              ? `User Question: ${cleanMessage}
-
-Web Data:
-${context}
-
-Answer clearly using this information.`
-              : cleanMessage,
+              ? `${message}\n\nWeb Info:\n${context}`
+              : message,
           },
         ],
         model: MODEL,
@@ -157,8 +160,8 @@ Answer clearly using this information.`
       console.error("Groq Error:", err?.message);
 
       return NextResponse.json(
-        { error: "AI service is busy. Try again." },
-        { status: 503 }
+        { error: "AI service failed" },
+        { status: 500 }
       );
     }
 
@@ -166,15 +169,18 @@ Answer clearly using this information.`
     await Message.create({
       messageId: randomUUID(),
       userId,
-      threadId: threadObjectId,
+      threadId: finalThreadId,
       role: "assistant",
       content: aiReply,
     });
 
-    return NextResponse.json({ reply: aiReply });
+    return NextResponse.json({
+      reply: aiReply,
+      threadId: finalThreadId.toString(),
+    });
 
-  } catch (error: any) {
-    console.error("Server Error:", error);
+  } catch (error) {
+    console.error("POST Error:", error);
 
     return NextResponse.json(
       { error: "Internal server error" },
@@ -183,63 +189,40 @@ Answer clearly using this information.`
   }
 }
 
-// ✅ GET messages
+// ================= GET =================
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
 
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const userId = session.user.id;
 
     const threadId = req.nextUrl.searchParams.get("threadId");
 
-    if (!threadId) {
+    if (!threadId || !mongoose.Types.ObjectId.isValid(threadId)) {
       return NextResponse.json(
-        { error: "threadId is required" },
+        { error: "Invalid threadId" },
         { status: 400 }
       );
     }
-
-    if (!mongoose.Types.ObjectId.isValid(threadId)) {
-      return NextResponse.json(
-        { error: "Invalid threadId format" },
-        { status: 400 }
-      );
-    }
-
-    const threadObjectId = new mongoose.Types.ObjectId(threadId);
-
-    const thread = await Thread.findOne({
-      _id: threadObjectId,
-      userId,
-    });
-
-    // 🔥 AUTO-FIX INVALID THREAD
-let validThreadId = threadObjectId;
-
-if (!thread) {
-  console.warn("Invalid thread → creating new thread");
-
-  const newThread = await Thread.create({
-    userId,
-    title: "New Chat",
-  });
-
-  validThreadId = newThread._id;
-}
 
     const messages = await Message.find({
-      threadId: threadObjectId,
+      threadId: new mongoose.Types.ObjectId(threadId),
       userId,
     }).sort({ createdAt: 1 });
 
     return NextResponse.json({ messages });
 
-  } catch (error: any) {
+  } catch (error) {
+    console.error("GET Error:", error);
+
     return NextResponse.json(
       { error: "Failed to fetch messages" },
       { status: 500 }

@@ -117,49 +117,85 @@ export default function ChatWindow() {
     }
   };
 
-  // ✅ Send message (AUTO THREAD FIX HERE)
+  // ✏️ Rename thread
+  const renameThread = async (id: string) => {
+    const newTitle = prompt("Enter new title");
+    if (!newTitle) return;
+
+    try {
+      await fetch(`/api/thread/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      fetchThreads();
+    } catch (err) {
+      console.error("Rename failed:", err);
+    }
+  };
+
+  // 🗑 Delete thread
+  const deleteThread = async (id: string) => {
+    try {
+      await fetch(`/api/thread/${id}`, {
+        method: "DELETE",
+      });
+
+      setThreads((prev) => prev.filter((t) => t._id !== id));
+
+      if (activeThread === id) {
+        setActiveThread(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
+  };
+
+  // ✅ Send message (UNCHANGED)
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
 
     let threadId = activeThread;
 
-    // 🔥 AUTO CREATE THREAD
-    if (!threadId) {
-      try {
+    try {
+      if (!threadId) {
         const res = await fetch("/api/thread", { method: "POST" });
         const newThread = await res.json();
 
-        setThreads((prev) => [newThread, ...prev]);
-        setActiveThread(newThread._id);
-        threadId = newThread._id;
-      } catch (err) {
-        console.error("Failed to create thread");
-        return;
+        const createdId = newThread._id || newThread.thread?._id;
+
+        setThreads((prev) => [
+          { _id: createdId, title: "New Chat" },
+          ...prev,
+        ]);
+
+        setActiveThread(createdId);
+        threadId = createdId;
       }
-    }
 
-    const userMessage: MessageType = {
-      id: Date.now(),
-      content: text,
-      role: "user",
-      timestamp: new Date().toLocaleTimeString(),
-    };
+      const userMessage: MessageType = {
+        id: Date.now(),
+        content: text,
+        role: "user",
+        timestamp: new Date().toLocaleTimeString(),
+      };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setLoading(true);
+      setMessages((prev) => [...prev, userMessage]);
+      setLoading(true);
 
-    try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          threadId,
-        }),
+        body: JSON.stringify({ message: text, threadId }),
       });
 
       const data = await res.json();
+
       if (!res.ok) throw new Error(data?.error);
+
+      if (data.threadId) setActiveThread(data.threadId);
 
       const botId = Date.now() + 1;
 
@@ -182,10 +218,13 @@ export default function ChatWindow() {
 
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.id === botId ? { ...msg, content: currentText } : msg
+            msg.id === botId
+              ? { ...msg, content: currentText }
+              : msg
           )
         );
       }
+
     } catch (error) {
       console.error(error);
     } finally {
@@ -195,6 +234,7 @@ export default function ChatWindow() {
 
   return (
     <div className={`flex h-screen ${darkMode ? "bg-[#131314] text-white" : "bg-white text-black"}`}>
+      
       {/* Sidebar */}
       <aside className={`${isSidebarOpen ? "w-64" : "w-0"} transition-all border-r overflow-hidden`}>
         <div className="p-4">
@@ -209,12 +249,20 @@ export default function ChatWindow() {
             {threads.map((t, index) => (
               <div
                 key={t._id?.toString() || index}
-                onClick={() => setActiveThread(t._id)}
-                className={`p-2 rounded cursor-pointer ${
+                className={`p-2 rounded ${
                   activeThread === t._id ? "bg-gray-600" : "hover:bg-gray-700"
                 }`}
               >
-                {t.title || "New Chat"}
+                {/* Click thread */}
+                <div onClick={() => setActiveThread(t._id)} className="cursor-pointer">
+                  {t.title || "New Chat"}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 mt-1 text-xs">
+                  <button onClick={() => renameThread(t._id)}>✏️</button>
+                  <button onClick={() => deleteThread(t._id)}>🗑</button>
+                </div>
               </div>
             ))}
           </div>

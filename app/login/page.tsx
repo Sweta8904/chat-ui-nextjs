@@ -12,10 +12,23 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    setLoading(true);
     setError("");
+
+    // ✅ Validation
+    if (!email || !password) {
+      setError("Email and password are required");
+      return;
+    }
+
+    if (!email.includes("@")) {
+      setError("Enter a valid email");
+      return;
+    }
+
+    setLoading(true);
 
     const res = await signIn("credentials", {
       email,
@@ -34,9 +47,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-gray-800">
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-gray-800 px-4">
       
-      <div className="bg-gray-900 text-white p-8 rounded-2xl shadow-xl w-80 flex flex-col gap-4">
+      <div className="bg-gray-900 text-white p-8 rounded-2xl shadow-xl w-full max-w-sm flex flex-col gap-4">
         
         <h1 className="text-2xl font-bold text-center">Welcome Back</h1>
 
@@ -48,23 +61,39 @@ export default function LoginPage() {
         <input
           type="email"
           placeholder="Email"
-          className="bg-gray-800 border border-gray-700 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={email}
+          className="bg-gray-800 text-white border border-gray-700 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleLogin()}
         />
 
         {/* Password */}
-        <input
-          type="password"
-          placeholder="Password"
-          className="bg-gray-800 border border-gray-700 p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            placeholder="Password"
+            value={password}
+            className="bg-gray-800 text-white border border-gray-700 p-2 rounded w-full pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+          />
+          <span
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-2 top-2 cursor-pointer text-gray-400 text-sm"
+          >
+            {showPassword ? "🙈" : "👁️"}
+          </span>
+        </div>
 
         {/* Login Button */}
         <button
           onClick={handleLogin}
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 transition py-2 rounded font-semibold"
+          className={`py-2 rounded font-semibold transition ${
+            loading
+              ? "bg-blue-400 cursor-not-allowed"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
           {loading ? "Logging in..." : "Login"}
         </button>
@@ -86,6 +115,17 @@ export default function LoginPage() {
         >
           Continue with GitHub
         </button>
+
+        {/* Signup redirect */}
+        <p className="text-sm text-gray-400 text-center">
+          Don’t have an account?{" "}
+          <span
+            className="text-blue-400 cursor-pointer"
+            onClick={() => router.push("/signup")}
+          >
+            Signup
+          </span>
+        </p>
       </div>
     </div>
   );
