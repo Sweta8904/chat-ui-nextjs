@@ -31,6 +31,6 @@ export default async function Home() {
 
   // ✅ ONLY render ChatWindow (no sidebar here)
   return (
-    <ChatWindow threadId={currentThread._id.toString()} />
+    <ChatWindow  />
   );
 }

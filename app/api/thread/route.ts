@@ -1,28 +1,35 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Thread from "@/models/Thread";
 import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
 
 // ✅ CREATE THREAD
 export async function POST() {
   try {
-    const session = await getServerSession();
+    await connectDB();
 
-    if (!session || !session.user) {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    await connectDB();
+    // ✅ ALWAYS use same userId (NO email fallback)
+    const userId = session.user.id;
 
     const thread = await Thread.create({
-      userId: session.user.id || session.user.email, // store user
+      userId,
       title: "New Chat",
     });
 
-    return NextResponse.json({ thread });
+    return NextResponse.json({
+      ...thread.toObject(),
+      _id: thread._id.toString(), // ✅ frontend safe
+    });
 
   } catch (error) {
     console.error("Thread POST Error:", error);
@@ -37,27 +44,29 @@ export async function POST() {
 // ✅ GET ALL THREADS (FOR SIDEBAR)
 export async function GET() {
   try {
-    const session = await getServerSession();
+    await connectDB();
 
-    if (!session || !session.user) {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    await connectDB();
+    const userId = session.user.id;
 
-    const threads = await Thread.find({
-      userId: session.user.id || session.user.email,
-    }).sort({ createdAt: -1 });
+    const threads = await Thread.find({ userId }).sort({
+      createdAt: -1,
+    });
 
     return NextResponse.json({
-  threads: threads.map((t) => ({
-    ...t.toObject(),
-    _id: t._id.toString(), // ✅ FIX HERE
-  })),
-});
+      threads: threads.map((t) => ({
+        ...t.toObject(),
+        _id: t._id.toString(), // ✅ fix React key + frontend
+      })),
+    });
 
   } catch (error) {
     console.error("Thread GET Error:", error);

@@ -1,21 +1,24 @@
 import mongoose from "mongoose";
 
-const MONGO_URI = process.env.MONGO_URI as string;
+const MONGO_URI = process.env.MONGO_URI;
 
 if (!MONGO_URI) {
   throw new Error("❌ Please define MONGO_URI in .env.local");
 }
 
-// Extend global type (for caching in dev)
-declare global {
-  var mongooseCache: {
-    conn: typeof mongoose | null;
-    promise: Promise<typeof mongoose> | null;
-  };
+// ✅ Extend global safely (TypeScript fix)
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
 }
 
-// Initialize cache if not present
-const cached = global.mongooseCache || {
+declare global {
+  // eslint-disable-next-line no-var
+  var mongooseCache: MongooseCache | undefined;
+}
+
+// ✅ Use existing cache or create new
+const cached: MongooseCache = global.mongooseCache || {
   conn: null,
   promise: null,
 };
@@ -23,25 +26,26 @@ const cached = global.mongooseCache || {
 global.mongooseCache = cached;
 
 export default async function connectDB() {
-  try {
-    // Return cached connection
-    if (cached.conn) {
-      return cached.conn;
-    }
-
-    // Create new connection if not exists
-    if (!cached.promise) {
-      cached.promise = mongoose.connect(MONGO_URI, {
-        dbName: "chatapp",
-        bufferCommands: false,
-      });
-    }
-
-    cached.conn = await cached.promise;
-
+  // ✅ If already connected → return
+  if (cached.conn) {
     return cached.conn;
+  }
+
+  // ✅ If no promise → create connection
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGO_URI!, {
+      dbName: "chatapp",
+      bufferCommands: false,
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
   } catch (error) {
+    cached.promise = null; // reset so retry works
     console.error("❌ MongoDB connection error:", error);
     throw error;
   }
+
+  return cached.conn;
 }

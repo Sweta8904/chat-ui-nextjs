@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Message from "@/models/Message";
+import Thread from "@/models/Thread";
 import Groq from "groq-sdk";
 import axios from "axios";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
 import { randomUUID } from "crypto";
+import mongoose from "mongoose";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -18,10 +20,7 @@ async function searchWeb(query: string) {
   try {
     const res = await axios.post(
       "https://api.tavily.com/search",
-      {
-        query,
-        max_results: 3,
-      },
+      { query, max_results: 3 },
       {
         headers: {
           Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
@@ -67,34 +66,61 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // 🔐 AUTH CHECK
+    // 🔐 AUTH
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(threadId)) {
       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
+        { error: "Invalid threadId format" },
+        { status: 400 }
       );
     }
 
     const userId = session.user.id;
+    const threadObjectId = new mongoose.Types.ObjectId(threadId);
+
+    // 🔐 THREAD CHECK
+    const thread = await Thread.findOne({
+      _id: threadObjectId,
+      userId,
+    });
+
+    if (!thread) {
+      return NextResponse.json(
+        { error: "Invalid thread" },
+        { status: 403 }
+      );
+    }
+
+    const cleanMessage = message.trim();
 
     // ✅ Save USER message
     await Message.create({
       messageId: randomUUID(),
       userId,
-      threadId,
+      threadId: threadObjectId,
       role: "user",
-      content: message,
+      content: cleanMessage,
     });
+
+    // 🔥 UPDATE THREAD TITLE (IMPORTANT FIX)
+    if (thread.title === "New Chat") {
+      await Thread.findByIdAndUpdate(threadObjectId, {
+        title: cleanMessage.substring(0, 30),
+      });
+    }
 
     let context = "";
 
-    // 🔥 Web search
-    if (shouldSearchWeb(message)) {
-      const results = await searchWeb(message);
+    // 🔍 Web search
+    if (shouldSearchWeb(cleanMessage)) {
+      const results = await searchWeb(cleanMessage);
 
       context = results
-        .map((r: any) => `Title: ${r.title}\nContent: ${r.content}`)
+        .map((r: any) => `• ${r.title}\n${r.content}`)
         .join("\n\n");
     }
 
@@ -106,25 +132,27 @@ export async function POST(req: NextRequest) {
           {
             role: "system",
             content: context
-              ? "You are a smart assistant. Use the provided web results to answer accurately and up-to-date."
+              ? "You are a smart assistant. Use web results to give accurate answers."
               : "You are a helpful assistant.",
           },
           {
             role: "user",
             content: context
-              ? `User Question: ${message}
+              ? `User Question: ${cleanMessage}
 
-Latest Web Information:
+Web Data:
 ${context}
 
-Give a clear and updated answer based on this data.`
-              : message,
+Answer clearly using this information.`
+              : cleanMessage,
           },
         ],
         model: MODEL,
       });
 
-      aiReply = completion.choices[0]?.message?.content || "";
+      aiReply =
+        completion.choices[0]?.message?.content ||
+        "⚠️ No response from AI";
     } catch (err: any) {
       console.error("Groq Error:", err?.message);
 
@@ -138,7 +166,7 @@ Give a clear and updated answer based on this data.`
     await Message.create({
       messageId: randomUUID(),
       userId,
-      threadId,
+      threadId: threadObjectId,
       role: "assistant",
       content: aiReply,
     });
@@ -155,17 +183,14 @@ Give a clear and updated answer based on this data.`
   }
 }
 
-// ✅ GET messages (SECURE)
+// ✅ GET messages
 export async function GET(req: NextRequest) {
   try {
     await connectDB();
 
-    const session = await getServerSession();
+    const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const userId = session.user.id;
@@ -179,9 +204,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (!mongoose.Types.ObjectId.isValid(threadId)) {
+      return NextResponse.json(
+        { error: "Invalid threadId format" },
+        { status: 400 }
+      );
+    }
+
+    const threadObjectId = new mongoose.Types.ObjectId(threadId);
+
+    const thread = await Thread.findOne({
+      _id: threadObjectId,
+      userId,
+    });
+
+    // 🔥 AUTO-FIX INVALID THREAD
+let validThreadId = threadObjectId;
+
+if (!thread) {
+  console.warn("Invalid thread → creating new thread");
+
+  const newThread = await Thread.create({
+    userId,
+    title: "New Chat",
+  });
+
+  validThreadId = newThread._id;
+}
+
     const messages = await Message.find({
-      threadId,
-      userId, // ✅ SECURITY FIX
+      threadId: threadObjectId,
+      userId,
     }).sort({ createdAt: 1 });
 
     return NextResponse.json({ messages });
