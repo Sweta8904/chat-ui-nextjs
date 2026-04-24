@@ -8,34 +8,25 @@ import { authOptions } from "../../auth/[...nextauth]/route";
 // ================= RENAME THREAD =================
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } // ✅ FIXED
 ) {
   try {
     await connectDB();
 
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { id } = await context.params; // ✅ IMPORTANT FIX
     const { title } = await req.json();
 
     if (!title) {
-      return NextResponse.json(
-        { error: "Title required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Title required" }, { status: 400 });
     }
 
     const updated = await Thread.findOneAndUpdate(
-      {
-        _id: params.id,
-        userId: session.user.id,
-      },
+      { _id: id, userId: session.user.id },
       { title },
       { new: true }
     );
@@ -47,51 +38,39 @@ export async function PATCH(
     });
 
   } catch (error) {
-    console.error("Rename error:", error);
-
-    return NextResponse.json(
-      { error: "Rename failed" },
-      { status: 500 }
-    );
+    console.error(error);
+    return NextResponse.json({ error: "Rename failed" }, { status: 500 });
   }
 }
 
 // ================= DELETE THREAD =================
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } // ✅ FIXED
 ) {
   try {
     await connectDB();
 
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // delete thread
+    const { id } = await context.params; // ✅ IMPORTANT FIX
+
     await Thread.deleteOne({
-      _id: params.id,
+      _id: id,
       userId: session.user.id,
     });
 
-    // 🔥 also delete messages
     await Message.deleteMany({
-      threadId: params.id,
+      threadId: id,
     });
 
     return NextResponse.json({ success: true });
 
   } catch (error) {
-    console.error("Delete error:", error);
-
-    return NextResponse.json(
-      { error: "Delete failed" },
-      { status: 500 }
-    );
+    console.error(error);
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }
