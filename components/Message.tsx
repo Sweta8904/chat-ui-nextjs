@@ -5,26 +5,29 @@ type Props = {
 };
 
 export default function Message({ role, content, timestamp }: Props) {
+  const isUser = role === "user";
+
   return (
-    
     <div
-      className={`flex flex-col mb-3 ${
-        role === "user" ? "items-end" : "items-start"
+      className={`flex flex-col mb-4 ${
+        isUser ? "items-end" : "items-start"
       }`}
     >
       {/* Message Bubble */}
       <div
-        className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md break-words shadow-md ${
-          role === "user"
-            ? "bg-blue-500 text-white"
-            : "bg-gray-300 text-black"
+        className={`px-4 py-3 rounded-2xl max-w-[75%] md:max-w-[60%] break-words shadow-lg transition-all ${
+          isUser
+            ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-br-sm"
+            : "bg-gray-800 text-gray-100 rounded-bl-sm"
         }`}
       >
-        {content}
+        <p className="text-sm whitespace-pre-wrap leading-relaxed">
+          {content}
+        </p>
       </div>
 
       {/* Timestamp */}
-      <span className="text-xs text-gray-400 mt-1">
+      <span className="text-[11px] text-gray-400 mt-1 px-1">
         {timestamp}
       </span>
     </div>

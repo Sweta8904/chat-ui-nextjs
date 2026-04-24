@@ -5,7 +5,6 @@ import Message from "./Message";
 import InputArea from "./InputArea";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-
 type MessageType = {
   id: number;
   content: string;
@@ -15,24 +14,26 @@ type MessageType = {
 
 type ThreadType = {
   _id: string;
-  title: string;
+  title?: string;
 };
 
 export default function ChatWindow() {
-  const { status } = useSession();
+  const { status, data: session } = useSession();
   const router = useRouter();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [threads, setThreads] = useState<ThreadType[]>([]);
   const [activeThread, setActiveThread] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [search, setSearch] = useState("");
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  // 🔐 Redirect if not logged in
+useEffect(() => {
+  audioRef.current = new Audio("/notification.mp3");
+}, []);
+  // 🔐 Redirect
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
@@ -46,21 +47,21 @@ export default function ChatWindow() {
       const data = await res.json();
 
       if (res.ok) {
-        setThreads(data.threads || []);
+        const threadList = data.threads || [];
 
-        if (data.threads.length > 0 && !activeThread) {
-          setActiveThread(data.threads[0]._id);
+        setThreads(threadList);
+
+        if (threadList.length > 0 && !activeThread) {
+          setActiveThread(threadList[0]._id);
         }
       }
     } catch (err) {
-      console.error("Failed to load threads:", err);
+      console.error(err);
     }
   };
 
   useEffect(() => {
-    if (status === "authenticated") {
-      fetchThreads();
-    }
+    if (status === "authenticated") fetchThreads();
   }, [status]);
 
   // ✅ Fetch messages
@@ -69,242 +70,267 @@ export default function ChatWindow() {
       const res = await fetch(`/api/chat?threadId=${threadId}`);
       const data = await res.json();
 
-      if (res.ok && data.messages) {
-        const formatted = data.messages.map((msg: any) => ({
-          id: new Date(msg.createdAt).getTime(),
-          content: msg.content,
-          role: msg.role,
-          timestamp: new Date(msg.createdAt).toLocaleTimeString(),
-        }));
-
-        setMessages(formatted);
+      if (res.ok) {
+        setMessages(
+          (data.messages || []).map((m: any) => ({
+            id: new Date(m.createdAt).getTime(),
+            content: m.content,
+            role: m.role,
+            timestamp: new Date(m.createdAt).toLocaleTimeString(),
+          }))
+        );
       }
     } catch (err) {
-      console.error("Failed to load messages:", err);
+      console.error(err);
     }
   };
 
   useEffect(() => {
-    if (activeThread) {
-      fetchMessages(activeThread);
-    }
+    if (activeThread) fetchMessages(activeThread);
   }, [activeThread]);
 
   // ✅ Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages]);
 
-  if (status === "loading") {
-    return <div className="text-center mt-10">Checking auth...</div>;
-  }
+  if (status === "loading") return <div className="text-center mt-10">Loading...</div>;
+  if (status === "unauthenticated") return null;
 
-  if (status === "unauthenticated") {
-    return null;
-  }
+  // 🔍 Safe search
+  const filteredThreads = threads.filter((t) =>
+    (t.title || "New Chat")
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
 
   // ✅ Create thread
   const createThread = async () => {
     try {
       const res = await fetch("/api/thread", { method: "POST" });
-      const newThread = await res.json();
+      const data = await res.json();
+
+      const newThread = data.thread || data;
+
+      if (!newThread?._id) return;
 
       setThreads((prev) => [newThread, ...prev]);
       setActiveThread(newThread._id);
       setMessages([]);
     } catch (err) {
-      console.error("Thread creation failed:", err);
+      console.error(err);
     }
   };
 
-  // ✏️ Rename thread
+  // ✏️ Rename
   const renameThread = async (id: string) => {
-    const newTitle = prompt("Enter new title");
-    if (!newTitle) return;
+    const title = prompt("New name");
+    if (!title) return;
 
-    try {
-      await fetch(`/api/thread/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
-      });
+    await fetch(`/api/thread/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
 
-      fetchThreads();
-    } catch (err) {
-      console.error("Rename failed:", err);
-    }
+    fetchThreads();
   };
 
-  // 🗑 Delete thread
+  // 🗑 Delete
   const deleteThread = async (id: string) => {
-    try {
-      await fetch(`/api/thread/${id}`, {
-        method: "DELETE",
-      });
+    await fetch(`/api/thread/${id}`, { method: "DELETE" });
 
-      setThreads((prev) => prev.filter((t) => t._id !== id));
+    setThreads((prev) => prev.filter((t) => t._id !== id));
 
-      if (activeThread === id) {
-        setActiveThread(null);
-        setMessages([]);
-      }
-    } catch (err) {
-      console.error("Delete failed:", err);
+    if (activeThread === id) {
+      setActiveThread(null);
+      setMessages([]);
     }
   };
 
-  // ✅ Send message (UNCHANGED)
+  // 💬 Send message
   const sendMessage = async (text: string) => {
-    if (!text.trim() || loading) return;
+  if (!text.trim() || loading) return;
 
-    let threadId = activeThread;
+  let threadId = activeThread;
+  const tempId = Date.now() + 1;
 
-    try {
-      if (!threadId) {
-        const res = await fetch("/api/thread", { method: "POST" });
-        const newThread = await res.json();
-
-        const createdId = newThread._id || newThread.thread?._id;
-
-        setThreads((prev) => [
-          { _id: createdId, title: "New Chat" },
-          ...prev,
-        ]);
-
-        setActiveThread(createdId);
-        threadId = createdId;
-      }
-
-      const userMessage: MessageType = {
-        id: Date.now(),
-        content: text,
-        role: "user",
-        timestamp: new Date().toLocaleTimeString(),
-      };
-
-      setMessages((prev) => [...prev, userMessage]);
-      setLoading(true);
-
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, threadId }),
-      });
-
+  try {
+    // ✅ Create thread if not exists
+    if (!threadId) {
+      const res = await fetch("/api/thread", { method: "POST" });
       const data = await res.json();
+      const t = data.thread || data;
 
-      if (!res.ok) throw new Error(data?.error);
+      if (!t?._id) throw new Error("Invalid thread");
 
-      if (data.threadId) setActiveThread(data.threadId);
-
-      const botId = Date.now() + 1;
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: botId,
-          content: "",
-          role: "assistant",
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
-
-      let currentText = "";
-
-      for (let i = 0; i < data.reply.length; i++) {
-        currentText += data.reply[i];
-
-        await new Promise((res) => setTimeout(res, 10));
-
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === botId
-              ? { ...msg, content: currentText }
-              : msg
-          )
-        );
-      }
-
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
+      setThreads((p) => [t, ...p]);
+      setActiveThread(t._id);
+      threadId = t._id;
     }
-  };
+
+    // ✅ Properly typed user message
+    const userMsg: MessageType = {
+      id: Date.now(),
+      content: text,
+      role: "user",
+      timestamp: new Date().toLocaleTimeString(),
+    };
+
+    // ✅ Properly typed assistant placeholder
+    const assistantMsg: MessageType = {
+      id: tempId,
+      content: "Thinking...",
+      role: "assistant",
+      timestamp: new Date().toLocaleTimeString(),
+    };
+
+    // ✅ Safe state update
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+
+    setLoading(true);
+
+    // ✅ API call
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message: text, threadId }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data?.error);
+
+    // ✅ Update assistant message
+    setMessages((p) =>
+  p.map((m) =>
+    m.id === tempId ? { ...m, content: data.reply } : m
+  )
+);
+
+// 🔔 Play sound AFTER AI reply
+audioRef.current?.play().catch(() => {});
+
+  } catch (err) {
+    console.error(err);
+
+    // ✅ Handle error safely
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === tempId
+          ? { ...m, content: "⚠️ Error getting response" }
+          : m
+      )
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
-    <div className={`flex h-screen ${darkMode ? "bg-[#131314] text-white" : "bg-white text-black"}`}>
-      
-      {/* Sidebar */}
-      <aside className={`${isSidebarOpen ? "w-64" : "w-0"} transition-all border-r overflow-hidden`}>
-        <div className="p-4">
-          <button
-            onClick={createThread}
-            className="w-full bg-gray-700 text-white p-2 rounded"
+  <div className="flex h-screen bg-gradient-to-br from-[#0f172a] via-[#020617] to-black text-white">
+
+    {/* Sidebar */}
+    <aside className="w-64 bg-[#020617]/80 backdrop-blur border-r border-gray-800 p-4 hidden md:block">
+      <button
+        onClick={createThread}
+        className="w-full bg-blue-600 hover:bg-blue-700 p-2 rounded-lg font-medium"
+      >
+        + New Chat
+      </button>
+
+      <div className="mt-4 space-y-2">
+        {threads.map((t) => (
+          <div
+            key={t._id}
+            className={`p-3 rounded-lg cursor-pointer transition ${
+              activeThread === t._id
+                ? "bg-gray-800"
+                : "hover:bg-gray-900"
+            }`}
           >
-            + New Chat
-          </button>
-
-          <div className="mt-4 space-y-2">
-            {threads.map((t, index) => (
-              <div
-                key={t._id?.toString() || index}
-                className={`p-2 rounded ${
-                  activeThread === t._id ? "bg-gray-600" : "hover:bg-gray-700"
-                }`}
-              >
-                {/* Click thread */}
-                <div onClick={() => setActiveThread(t._id)} className="cursor-pointer">
-                  {t.title || "New Chat"}
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2 mt-1 text-xs">
-                  <button onClick={() => renameThread(t._id)}>✏️</button>
-                  <button onClick={() => deleteThread(t._id)}>🗑</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-
-      {/* Chat */}
-      <main className="flex-1 flex flex-col">
-        <header className="p-4 flex justify-between items-center">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>☰</button>
-          <h2>Chat</h2>
-
-          <div className="flex gap-2">
-            <button onClick={() => setDarkMode(!darkMode)}>
-              {darkMode ? "🌙" : "☀️"}
-            </button>
-
-            <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="bg-red-500 px-3 py-1 rounded"
-            >
-              Logout
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`mb-4 ${msg.role === "user" ? "text-right" : "text-left"}`}>
-              <Message {...msg} />
+            <div onClick={() => setActiveThread(t._id)}>
+              {t.title || "New Chat"}
             </div>
-          ))}
 
-          {loading && <div className="text-gray-400">Typing...</div>}
+            <div className="flex gap-2 text-xs mt-1 opacity-60">
+              <button onClick={() => renameThread(t._id)}>✏️</button>
+              <button onClick={() => deleteThread(t._id)}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
 
-          <div ref={bottomRef} />
+    {/* Chat */}
+    <main className="flex-1 flex flex-col items-center">
+
+      {/* Header */}
+      <header className="w-full max-w-3xl px-4 py-3 flex justify-between items-center backdrop-blur bg-white/5 border-b border-gray-800">
+        <h2 className="text-lg font-semibold tracking-wide">
+          MetaWorks UI Chat
+        </h2>
+
+        <div className="flex items-center gap-3">
+          <img
+            src={session?.user?.image || "/avatar.png"}
+            className="w-8 h-8 rounded-full"
+          />
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="bg-red-500 px-3 py-1 rounded-lg hover:bg-red-600"
+          >
+            Logout
+          </button>
         </div>
+      </header>
 
-        <footer className="p-4">
-          <InputArea onSend={sendMessage} />
-        </footer>
-      </main>
-    </div>
-  );
-}
+      {/* Messages */}
+      <div className="flex-1 w-full max-w-3xl overflow-y-auto px-4 py-6 space-y-4">
+
+        {messages.length === 0 && (
+          <div className="text-center mt-32 text-gray-400">
+            <h2 className="text-2xl font-semibold mb-2">
+              Ask anything ✨
+            </h2>
+            <p className="text-sm">Start your conversation</p>
+          </div>
+        )}
+
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex ${
+              msg.role === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`max-w-[75%] px-4 py-3 rounded-2xl shadow-lg ${
+                msg.role === "user"
+                  ? "bg-blue-600 text-white rounded-br-none"
+                  : "bg-gray-800 text-gray-100 rounded-bl-none"
+              }`}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="text-gray-400 animate-pulse">
+            Meta ai is thinking...
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <footer className="w-full max-w-3xl p-4 border-t border-gray-800">
+        <InputArea onSend={sendMessage} />
+      </footer>
+    </main>
+  </div>
+);}
