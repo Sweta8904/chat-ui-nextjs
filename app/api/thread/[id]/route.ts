@@ -5,10 +5,10 @@ import Message from "@/models/Message";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../auth/[...nextauth]/route";
 
-// ================= RENAME THREAD =================
+// ✅ PATCH (Rename)
 export async function PATCH(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> } // ✅ FIXED
+  context: any // ✅ safest fix (avoids TS mismatch in Next 16)
 ) {
   try {
     await connectDB();
@@ -18,7 +18,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = await context.params; // ✅ IMPORTANT FIX
+    const { id } = await context.params; // ✅ works in all versions
     const { title } = await req.json();
 
     if (!title) {
@@ -37,16 +37,16 @@ export async function PATCH(
       title: updated.title,
     });
 
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
     return NextResponse.json({ error: "Rename failed" }, { status: 500 });
   }
 }
 
-// ================= DELETE THREAD =================
+// ✅ DELETE
 export async function DELETE(
   req: NextRequest,
-  context: { params: Promise<{ id: string }> } // ✅ FIXED
+  context: any // ✅ same fix
 ) {
   try {
     await connectDB();
@@ -56,7 +56,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = await context.params; // ✅ IMPORTANT FIX
+    const { id } = await context.params;
 
     await Thread.deleteOne({
       _id: id,
@@ -69,8 +69,8 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
 
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
     return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }
